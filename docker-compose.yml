@@ -1,0 +1,42 @@
+# SimuLoom: PostgreSQL + API (runs migrations on start) + web UI (nginx, proxies /api to the API).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: simuloom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env and set POSTGRES_PASSWORD}
+      POSTGRES_DB: simuloom
+    volumes:
+      - simuloom_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simuloom -d simuloom"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      SIMULOOM_DATABASE_URL: postgresql+psycopg://simuloom:${POSTGRES_PASSWORD_ENCODED}@db:5432/simuloom
+      SIMULOOM_CORS_ORIGINS: ${SIMULOOM_CORS_ORIGINS:-http://localhost:8080}
+      SIMULOOM_LOG_LEVEL: ${SIMULOOM_LOG_LEVEL:-INFO}
+      SIMULOOM_EXPERIMENT_TIMEOUT_SECONDS: ${SIMULOOM_EXPERIMENT_TIMEOUT_SECONDS:-120}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+
+volumes:
+  simuloom_pgdata:

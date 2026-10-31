@@ -1,0 +1,43 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: simuloom, POSTGRES_PASSWORD: ci-only-password, POSTGRES_DB: simuloom_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U simuloom" --health-interval 5s --health-timeout 3s --health-retries 10
+    defaults: { run: { working-directory: backend } }
+    env:
+      SIMULOOM_TEST_DATABASE_URL: postgresql+psycopg://simuloom:ci-only-password@localhost:5432/simuloom_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run ruff check src tests spikes alembic
+      - run: uv run ruff format --check src tests spikes alembic
+      - run: uv run mypy
+      - run: uv run pytest -q
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose up -d --build --wait
+      - run: curl -fsS http://127.0.0.1:8080/health
+      - run: docker compose down -v
